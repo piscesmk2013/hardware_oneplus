@@ -80,7 +80,7 @@ static std::map<Effect, std::vector<std::pair<std::string, std::string>>> LED_EF
         { IGNORE_STORE_PATH, "0" },
         { DURATION_PATH, "8" },
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x70" },
+        { GAIN_PATH, "0x76" },
         { SEQ_PATH, "0x00 0x01" },
         { LOOP_PATH, "0x00 0x00" },
         { BRIGHTNESS_PATH, "1" },
@@ -89,7 +89,7 @@ static std::map<Effect, std::vector<std::pair<std::string, std::string>>> LED_EF
         { IGNORE_STORE_PATH, "0" },
         { DURATION_PATH, "13" },
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x70" },
+        { GAIN_PATH, "0x76" },
         { SEQ_PATH, "0x00 0x01" },
         { LOOP_PATH, "0x00 0x00" },
         { BRIGHTNESS_PATH, "1" },
@@ -97,7 +97,7 @@ static std::map<Effect, std::vector<std::pair<std::string, std::string>>> LED_EF
         { IGNORE_STORE_PATH, "0" },
         { DURATION_PATH, "13" },
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x70" },
+        { GAIN_PATH, "0x76" },
         { SEQ_PATH, "0x00 0x01" },
         { LOOP_PATH, "0x00 0x00" },
         { BRIGHTNESS_PATH, "1" },
@@ -115,7 +115,7 @@ static std::map<Effect, std::vector<std::pair<std::string, std::string>>> LED_EF
         { IGNORE_STORE_PATH, "0" },
         { DURATION_PATH, "13" },
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x70" },
+        { GAIN_PATH, "0x76" },
         { SEQ_PATH, "0x00 0x04" },
         { LOOP_PATH, "0x00 0x00" },
         { BRIGHTNESS_PATH, "1" },
@@ -124,7 +124,7 @@ static std::map<Effect, std::vector<std::pair<std::string, std::string>>> LED_EF
         { IGNORE_STORE_PATH, "0" },
         { DURATION_PATH, "30" },
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x80" },
+        { GAIN_PATH, "0x76" },
         { SEQ_PATH, "0x00 0x05" },
         { LOOP_PATH, "0x00 0x00" },
         { BRIGHTNESS_PATH, "1" },
@@ -163,7 +163,7 @@ static std::vector<std::vector<std::pair<std::string, std::string>>> VIBRATOR_CO
         { IGNORE_STORE_PATH, "0\n" },
         { DURATION_PATH, "0" },         // placeholder
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x70" },
+        { GAIN_PATH, "0x76" },
         { ACTIVATE_PATH, "1" },
     }
 };
@@ -438,6 +438,8 @@ LedVibratorDevice::LedVibratorDevice() {
     }
 
     mDetected = true;
+    mAmplitude = 1.0f;
+    mGain = 0x55;
 }
 
 int LedVibratorDevice::write_value(const char *file, const char *value) {
@@ -469,23 +471,37 @@ int LedVibratorDevice::write_value(const char *file, const char *value) {
     return ret;
 }
 
+int LedVibratorDevice::setAmplitude(float amplitude) {
+    int ret;
+
+    mAmplitude = amplitude;
+    int gain = mGain * mAmplitude;
+    char tmp[5];
+    snprintf(tmp, sizeof(tmp), "0x%x", gain);
+    ret = write_value(GAIN_PATH, tmp);
+    ALOGD("QTI Vibrator setAmplitude to %f with a gain of 0x%x", mAmplitude, gain);
+
+    return ret;
+}
+
 int LedVibratorDevice::on(int32_t timeoutMs) {
     int ret;
 
     int index = (timeoutMs < 81) ? 0 : (timeoutMs < 91) ? 1 :
                 (timeoutMs < 101) ? 2 : 3;
     int gain = 4 + 1.24*timeoutMs;
-    if (gain > 112) {
-        gain = 112;             // 0x70
+    if (gain > 118) {
+        gain = 118;             // 0x76
     }
-
+    mGain = gain;
+    gain = gain * mAmplitude;
     for (const auto &[path, value] : VIBRATOR_CONSTANTS[index]) {
         if (path == DURATION_PATH) {
-            char tmp[32];
+            char tmp[5];
             snprintf(tmp, sizeof(tmp), "%u\n", timeoutMs);
             ret = write_value(path.c_str(), tmp);
         } else if (path == GAIN_PATH) {
-            char tmp[32];
+            char tmp[5];
             snprintf(tmp, sizeof(tmp), "0x%x", gain);
             ret = write_value(path.c_str(), tmp);
         } else {
@@ -517,6 +533,7 @@ ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
 
     if (ledVib.mDetected) {
         *_aidl_return |= IVibrator::CAP_PERFORM_CALLBACK;
+        *_aidl_return |= IVibrator::CAP_AMPLITUDE_CONTROL; // we use this to control vibrator intensity
         return ndk::ScopedAStatus::ok();
     }
 
@@ -576,6 +593,28 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength es, const std
             for (const auto &[path, value] : it->second) {
                 if (path == "SLEEP") {
                     usleep(atoi(value.c_str()) * 1000);
+                } else if (path == GAIN_PATH) {
+                    char tmp[5];
+                    float gain = 0.0f;
+                    switch (es) {
+                        case EffectStrength::LIGHT:
+                            gain = 1.0f/3.0f;
+                            break;
+                        case EffectStrength::MEDIUM:
+                            gain = 2.0f/3.0f;
+                            break;
+                        case EffectStrength::STRONG:
+                            gain = 1.0f;
+                            break;
+                        default:
+                            gain = 1.0f;
+                            break;
+                    }
+                    uint32_t intVal;
+                    sscanf(value.c_str(), "%x", &intVal);
+                    intVal = intVal * gain;
+                    snprintf(tmp, sizeof(tmp), "0x%x", intVal);
+                    ledVib.write_value(path.c_str(), tmp);
                 } else {
                     ledVib.write_value(path.c_str(), value.c_str());
                 }
@@ -627,9 +666,12 @@ ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
     uint8_t tmp;
     int ret;
 
-    if (ledVib.mDetected)
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
-
+    if (ledVib.mDetected) {
+        ret = ledVib.setAmplitude(amplitude);
+        if (ret != 0)
+            return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
+        return ndk::ScopedAStatus::ok();
+    }
     if (amplitude <= 0.0f || amplitude > 1.0f)
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
 
