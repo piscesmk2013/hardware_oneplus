@@ -163,7 +163,7 @@ static std::vector<std::vector<std::pair<std::string, std::string>>> VIBRATOR_CO
         { IGNORE_STORE_PATH, "0\n" },
         { DURATION_PATH, "0" },         // placeholder
         { VMAX_PATH, "0x1f" },
-        { GAIN_PATH, "0x80" },
+        { GAIN_PATH, "0x70" },
         { ACTIVATE_PATH, "1" },
     }
 };
@@ -475,8 +475,8 @@ int LedVibratorDevice::on(int32_t timeoutMs) {
     int index = (timeoutMs < 81) ? 0 : (timeoutMs < 91) ? 1 :
                 (timeoutMs < 101) ? 2 : 3;
     int gain = 4 + 1.24*timeoutMs;
-    if (gain > 128) {
-        gain = 128;             // 0x80
+    if (gain > 112) {
+        gain = 112;             // 0x70
     }
 
     for (const auto &[path, value] : VIBRATOR_CONSTANTS[index]) {
