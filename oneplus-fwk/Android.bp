@@ -3,7 +3,16 @@ java_library {
     installable: true,
 
     srcs: [
-        "src/android/util/OpFeatures.java",
-        "src/net/oneplus/odm/OpDeviceManagerInjector.java",
+        "src/**/*.java",
     ],
+
+    static_libs: [
+        "vendor.oneplus.hardware.param-V1.0-java",
+    ],
+}
+
+java_import {
+    name: "vendor.oneplus.hardware.param-V1.0-java",
+    jars: ["vendor.oneplus.hardware.param-V1.0-java.jar"],
+    system_ext_specific: true,
 }
